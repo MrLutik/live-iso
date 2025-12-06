@@ -1,0 +1,17 @@
+# Build output
+output/
+work/
+*.iso
+
+# Config with secrets
+config/ssh-keys
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp

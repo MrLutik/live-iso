@@ -1,0 +1,29 @@
+# Minimal Arch Linux Live ISO packages
+# Purpose: Boot gateway only - everything else via Ansible
+
+# Boot essentials
+base
+linux-lts
+linux-lts-headers
+linux-firmware
+intel-ucode
+amd-ucode
+efibootmgr
+mkinitcpio
+
+# ZFS (pinned at build via zfspin)
+zfs-linux-lts
+zfs-utils
+
+# Network & SSH access (critical for Ansible)
+networkmanager
+openssh
+
+# Console
+terminus-font
+
+# Minimal tools for SSH session
+sudo
+less
+nano
+python

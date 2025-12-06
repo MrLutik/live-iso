@@ -1,0 +1,26 @@
+# Live ISO Configuration
+# Minimal boot gateway for Ansible deployment
+
+[live]
+hostname = "arch-live"
+timezone = "UTC"
+
+[console]
+font = "ter-132n"
+keymap = "us"
+
+[ssh]
+# SSH keys to inject into the live ISO
+# Update this file or use config/ssh-keys file
+permit_root = true
+password_auth = false
+authorized_keys_file = "config/ssh-keys"
+
+[network]
+# Auto-connect wired - default NetworkManager behavior
+wired_autoconnect = true
+
+[zfspin]
+# Build-time: auto-detect compatible kernel/ZFS versions
+auto_detect = true
+prefer_lts = true

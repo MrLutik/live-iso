@@ -1,0 +1,6 @@
+# SSH Authorized Keys for Live ISO
+# Copy this file to ssh-keys and add your public keys
+#
+# Example:
+# ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... user@hostname
+# sk-ssh-ed25519@openssh.com AAAAGnNrLXNz... YubiKey

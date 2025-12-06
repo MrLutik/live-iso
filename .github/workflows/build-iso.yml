@@ -1,0 +1,44 @@
+name: Build ISO
+
+on:
+  push:
+    tags:
+      - '*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+      options: --privileged
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          pacman -Syu --noconfirm archiso python python-pip git
+          pip install --break-system-packages zfspin
+
+      - name: Import ArchZFS key
+        run: |
+          pacman-key --init
+          pacman-key --recv-keys --keyserver keyserver.ubuntu.com DDF7DB817396A49B2A2723F7403BD972F75D9D76
+          pacman-key --lsign-key DDF7DB817396A49B2A2723F7403BD972F75D9D76
+
+      - name: Build ISO
+        run: python scripts/build-iso.py --output-dir output
+
+      - name: Upload ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: arch-zfs-live-iso
+          path: output/*.iso
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: output/*.iso
+          generate_release_notes: true
