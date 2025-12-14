@@ -11,6 +11,13 @@ amd-ucode
 efibootmgr
 mkinitcpio
 
+# Bootloader (required by archiso)
+syslinux
+grub
+
+# Live ISO boot hooks
+mkinitcpio-archiso
+
 # ZFS (pinned at build via zfspin)
 zfs-linux-lts
 zfs-utils
@@ -21,6 +28,9 @@ openssh
 
 # Console
 terminus-font
+
+# Shell (root uses zsh by default)
+zsh
 
 # Minimal tools for SSH session
 sudo

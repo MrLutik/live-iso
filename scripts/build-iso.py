@@ -84,14 +84,14 @@ def setup_pinned_kernel_repo(work_dir: Path) -> tuple[str, str]:
         repo = LocalRepository(repo_dir)
 
         # Download kernel packages
-        downloader = ArchiveDownloader()
+        downloader = ArchiveDownloader(config, work_dir)
         kernel_pkgs = downloader.download_kernel_packages(
             config.kernel_version,
             repo_dir
         )
 
         # Build zfs-utils from AUR
-        builder = AURBuilder()
+        builder = AURBuilder(config, work_dir)
         zfs_utils_pkg = builder.build_zfs_utils(
             config.zfs_utils_commit,
             repo_dir
@@ -126,7 +126,8 @@ def setup_archiso_profile(work_dir: Path, repo_root: Path) -> Path:
         log("ERROR", "archiso not installed. Install with: pacman -S archiso")
         sys.exit(1)
 
-    shutil.copytree(releng_path, profile_dir)
+    # Use symlinks=True to preserve symlinks instead of following them
+    shutil.copytree(releng_path, profile_dir, symlinks=True)
 
     # Copy our minimal packages list
     packages_src = repo_root / "iso" / "packages.x86_64"
@@ -144,6 +145,27 @@ def setup_archiso_profile(work_dir: Path, repo_root: Path) -> Path:
                 dst_path = airootfs_dst / rel_path
                 dst_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy(item, dst_path)
+
+    # Remove releng boot entries for standard linux kernel (we use linux-lts)
+    entries_dir = profile_dir / "efiboot" / "loader" / "entries"
+    for entry in ["01-archiso-linux.conf", "02-archiso-speech-linux.conf"]:
+        entry_path = entries_dir / entry
+        if entry_path.exists():
+            entry_path.unlink()
+            log("INFO", f"Removed incompatible boot entry: {entry}")
+
+    # Copy our linux-lts boot configs
+    for boot_dir in ["efiboot", "syslinux", "grub"]:
+        boot_src = repo_root / "iso" / boot_dir
+        boot_dst = profile_dir / boot_dir
+        if boot_src.exists():
+            for item in boot_src.rglob("*"):
+                if item.is_file():
+                    rel_path = item.relative_to(boot_src)
+                    dst_path = boot_dst / rel_path
+                    dst_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy(item, dst_path)
+                    log("INFO", f"Copied boot config: {boot_dir}/{rel_path}")
 
     return profile_dir
 
@@ -194,8 +216,11 @@ def configure_pacman(profile_dir: Path, pinned_repo_dir: Path | None):
         content = f.read()
 
     # Add ArchZFS repository
+    # SigLevel is set to Optional TrustAll because the archzfs GPG key
+    # is in the build container's keyring but pacstrap uses a separate keyring
     archzfs_repo = """
 [archzfs]
+SigLevel = Optional TrustAll
 Server = https://archzfs.com/$repo/$arch
 Server = https://mirror.sum7.eu/archlinux/archzfs/$repo/$arch
 """
@@ -217,6 +242,67 @@ Server = file://{pinned_repo_dir}
         f.write(content)
 
 
+def disable_conflicting_services(profile_dir: Path):
+    """Disable services that conflict with our minimal setup."""
+    log("STEP", "Disabling conflicting services...")
+
+    wants_dir = profile_dir / "airootfs" / "etc" / "systemd" / "system" / "multi-user.target.wants"
+
+    # Services to remove (conflicts with NetworkManager or not needed)
+    services_to_disable = [
+        # Network conflicts - we only want NetworkManager
+        "systemd-networkd.service",
+        "systemd-networkd.socket",
+        "systemd-networkd-wait-online.service",
+        "systemd-resolved.service",
+        "iwd.service",
+        # Cloud-init not needed for live ISO
+        "cloud-init-local.service",
+        "cloud-init-main.service",
+        "cloud-init-network.service",
+        "cloud-config.service",
+        "cloud-final.service",
+        # Accessibility services not needed
+        "livecd-talk.service",
+        "livecd-alsa-unmuter.service",
+        # Other unnecessary services
+        "choose-mirror.service",
+    ]
+
+    for service in services_to_disable:
+        link = wants_dir / service
+        if link.exists() or link.is_symlink():
+            link.unlink()
+            log("INFO", f"Disabled conflicting service: {service}")
+
+    # Also check other target wants directories
+    for target_wants in ["network-online.target.wants", "sockets.target.wants"]:
+        target_dir = profile_dir / "airootfs" / "etc" / "systemd" / "system" / target_wants
+        if target_dir.exists():
+            for service in services_to_disable:
+                link = target_dir / service
+                if link.exists() or link.is_symlink():
+                    link.unlink()
+                    log("INFO", f"Disabled {service} from {target_wants}")
+
+
+def cleanup_releng_files(profile_dir: Path):
+    """Remove releng-specific files that cause issues."""
+    log("STEP", "Cleaning up releng-specific files...")
+
+    # Files to remove from airootfs
+    files_to_remove = [
+        # releng preset for non-LTS kernel
+        "etc/mkinitcpio.d/linux.preset",
+    ]
+
+    for rel_path in files_to_remove:
+        file_path = profile_dir / "airootfs" / rel_path
+        if file_path.exists():
+            file_path.unlink()
+            log("INFO", f"Removed: {rel_path}")
+
+
 def enable_services(profile_dir: Path):
     """Enable required services for live environment."""
     log("STEP", "Enabling live environment services...")
@@ -232,8 +318,10 @@ def enable_services(profile_dir: Path):
     for service in services:
         link = wants_dir / service
         target = f"/usr/lib/systemd/system/{service}"
-        if not link.exists():
-            link.symlink_to(target)
+        # Skip if link already exists (may be from releng template)
+        if link.exists() or link.is_symlink():
+            continue
+        link.symlink_to(target)
 
 
 def build_iso(profile_dir: Path, work_dir: Path, output_dir: Path):
@@ -306,6 +394,12 @@ def main():
 
         # Inject SSH keys
         inject_ssh_keys(profile_dir, config, repo_root)
+
+        # Disable conflicting services from releng profile
+        disable_conflicting_services(profile_dir)
+
+        # Remove releng-specific files
+        cleanup_releng_files(profile_dir)
 
         # Enable services
         enable_services(profile_dir)
